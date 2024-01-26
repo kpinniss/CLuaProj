@@ -82,7 +82,7 @@ void luaCallFunction() {
     }
     lua_close(L);
 }
-
+///test
 /// <summary>
 /// Pythagoras function to be pushed to lua stack
 /// </summary>
