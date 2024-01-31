@@ -140,6 +140,7 @@
     <None Include="config.lua" />
     <None Include="funcs.lua" />
     <None Include="funcs2.lua" />
+    <None Include="playerController.lua" />
     <None Include="rectangle.lua" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

@@ -32,5 +32,6 @@
     <None Include="config.lua">
       <Filter>Source Files</Filter>
     </None>
+    <None Include="playerController.lua" />
   </ItemGroup>
 </Project>

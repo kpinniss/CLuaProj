@@ -19,20 +19,29 @@ extern "C"
 #pragma comment(lib, "lua/lua54.lib")
 #endif
 
+
 #pragma region Fields
+lua_State* L;
 
 SDL_Window* _window = NULL;
 SDL_Renderer* _renderer = NULL;
-
 SDL_Texture* _colorBufferTexture = NULL;
 uint32_t* _colorBuffer = NULL;
-
 int _windowWidth = 800;
 int _windowHeight = 600;
+bool _sdlWindowRunning = false;
+int _lastFrameTime = 0;
+int _fps = 30;
+float _frameTimeLength = (1000/_fps);
+
+struct player {
+    float x, y, width, height;
+} _player;
 
 
 #pragma endregion
 
+#pragma region Subs
 bool initWindow(void) {
     if (SDL_Init(SDL_INIT_EVERYTHING) != 0) {
         fprintf(stderr, "Error initializing SDL.\n");
@@ -48,12 +57,12 @@ bool initWindow(void) {
 
     //create window
     _window = SDL_CreateWindow(
-        "3D Renderer",
+        "Game Loop",
         SDL_WINDOWPOS_CENTERED,
         SDL_WINDOWPOS_CENTERED,
         _windowWidth,
         _windowHeight,
-        SDL_WINDOW_BORDERLESS
+        SDL_WINDOW_OPENGL
     );
 
     if (!_window) {
@@ -73,24 +82,26 @@ bool initWindow(void) {
 
     return true;
 }
+#pragma endregion 
 
+#pragma region Lua functions
 /// <summary>
 /// check if lua is compiled and scripts can be run
 /// </summary>
-void luaEmbed(){
+void luaEmbed() {
     std::cout << "Hello World!\n";
     std::string cmd = "luaLoaded = 1";
     lua_State* L = luaL_newstate();
     int r = luaL_dostring(L, cmd.c_str());
-    if (r == LUA_OK){
+    if (r == LUA_OK) {
         lua_getglobal(L, "luaLoaded");
-        if (lua_isnumber(L, -1)){
+        if (lua_isnumber(L, -1)) {
             float _luaLoaded = (float)lua_tonumber(L, -1);
             std::cout << "luaLoaded = " << _luaLoaded << std::endl;
             printf("Lua compiled successfully...");
         }
     }
-    else{
+    else {
         std::string error_msg = lua_tostring(L, -1);
         std::cout << error_msg << std::endl;
     }
@@ -101,7 +112,7 @@ void luaEmbed(){
 /// <summary>
 /// Check stack elm
 /// </summary>
-void luaCheckStack(){
+void luaCheckStack() {
     lua_State* L = luaL_newstate();
     lua_pushnumber(L, 286); // stack[1]
     lua_pushnumber(L, 386); // stack[2]
@@ -118,12 +129,12 @@ void luaCheckStack(){
 void luaCallFunction() {
     lua_State* L = luaL_newstate();
 
-    if (luaL_dofile(L, "funcs.lua") != LUA_OK){
+    if (luaL_dofile(L, "funcs.lua") != LUA_OK) {
         luaL_error(L, "Error: %s\n", lua_tostring(L, -1));
     }
 
     lua_getglobal(L, "pytha");
-    if (lua_isfunction(L,-1)){
+    if (lua_isfunction(L, -1)) {
         //push params to stack so lua can retrieve them
         lua_pushnumber(L, 2); //1st param
         lua_pushnumber(L, 6); //2nd param
@@ -159,7 +170,7 @@ int pythagoras(lua_State* L) {
 /// push naitive c function into lua stack
 /// </summary>
 /// <param name=""></param>
-void push_C_Function(void){
+void push_C_Function(void) {
     lua_State* L = luaL_newstate();
 
     lua_pushcfunction(L, pythagoras);
@@ -168,7 +179,7 @@ void push_C_Function(void){
     if (luaL_dofile(L, "funcs2.lua") != LUA_OK) {
         luaL_error(L, "Error: %s\n", lua_tostring(L, -1));
     }
-    lua_getglobal(L,"c_pytha");
+    lua_getglobal(L, "c_pytha");
     if (lua_isfunction(L, -1)) {
         lua_pushnumber(L, 3); //1st arg
         lua_pushnumber(L, 4); //2nd arg
@@ -176,7 +187,7 @@ void push_C_Function(void){
         const int NUM_ARGS = 2;
         const int NUM_RETURNS = 1;
         lua_pcall(L, NUM_ARGS, NUM_RETURNS, 0);
-        lua_Number result = lua_tonumber(L ,-1);
+        lua_Number result = lua_tonumber(L, -1);
 
         printf("pythagoras(3,4) = %f\n", result);
     }
@@ -199,7 +210,7 @@ int create_rectangle(lua_State* L) {
 int change_rectangle_size(lua_State* L) {
     //grab rect from bottom of stack since params h,w will be -1, -2
     rectangle* rect = (rectangle*)lua_touserdata(L, -3);
-    rect->width = (int)lua_tonumber(L,-2);
+    rect->width = (int)lua_tonumber(L, -2);
     rect->height = (int)lua_tonumber(L, -1);
     return 0; //does not return values to the stack
 }
@@ -216,8 +227,8 @@ void lua_userdata(void) {
     luaL_dofile(L, "rectangle.lua");
     lua_getglobal(L, "square");
 
-    if (lua_isuserdata(L,-1)) {
-        rectangle* r = (rectangle*)lua_touserdata(L,-1);
+    if (lua_isuserdata(L, -1)) {
+        rectangle* r = (rectangle*)lua_touserdata(L, -1);
         printf("User Data: [Rectangle] - Width: %d - Height: %d.\n", r->width, r->height);
     }
     else {
@@ -234,31 +245,119 @@ void lua_get_config_table(void) {
     lua_State* L = luaL_newstate();
     if (luaL_dofile(L, "config.lua") == LUA_OK) {
         lua_getglobal(L, "config_table");
-        if (lua_istable(L ,-1)) {
+        if (lua_istable(L, -1)) {
             lua_getfield(L, -1, "window_width"); //set top of stack to window_width value
             printf("Window Width: %s\n", lua_tostring(L, -1));
         }
     }
     else {
-        luaL_error(L, "Error: %\n", lua_tostring(L,-1));
+        luaL_error(L, "Error: %\n", lua_tostring(L, -1));
     }
-    
+}
+
+int setPlayerPosition(lua_State* L) {
+    lua_Number x = lua_tonumber(L,- 2);
+    lua_Number y = lua_tonumber(L, -1);
+    _player.x = (int)x;
+    _player.y = (int)y;
+
+    return 0;
+}
+#pragma endregion
+
+#pragma region Main functions
+void startup() {
+    _sdlWindowRunning = initWindow();
+    printf("SDL2 compiled and running: %d\n", _sdlWindowRunning);
+    _player.x = 10;
+    _player.y = 10;
+    _player.width = 20;
+    _player.height = 20;
+}
+
+void process_input() {
+    //read inputs
+    SDL_Event event;
+    SDL_PollEvent(&event);
+    switch (event.type) {
+    case SDL_QUIT:
+        _sdlWindowRunning = false;
+        break;
+    case SDL_KEYDOWN:
+        switch (event.key.keysym.sym) {
+        case SDLK_ESCAPE:
+            _sdlWindowRunning = false;
+            break;
+        }
+    }
+}
+
+void update() {
+    //update game
+    //change characteristics of game and game objects
+    //control time step
+    while (!SDL_TICKS_PASSED(SDL_GetTicks(), _lastFrameTime + _frameTimeLength));
+    float deltaTime = (SDL_GetTicks() - _lastFrameTime) / 1000.0f;
+    _lastFrameTime = SDL_GetTicks();
+    //call lua update functions
+    lua_getglobal(L, "update");
+    if (lua_isfunction(L, -1)) {
+        lua_pushnumber(L, deltaTime);
+        const int num_args = 1;
+        const int num_returns = 0;
+        lua_pcall(L, num_args, num_returns, 0);
+    }
+}
+
+void render() {
+    //render against updates
+    SDL_SetRenderDrawColor(_renderer, 50, 50, 50, 255);
+    SDL_RenderClear(_renderer);
+
+    //draw game objects
+    SDL_SetRenderDrawColor(_renderer, 255, 120, 100, 255);
+    SDL_Rect player_rect = { _player.x, _player.y, _player.width, _player.height };
+    SDL_RenderFillRect(_renderer, &player_rect);
+
+    //render objects
+    SDL_RenderPresent(_renderer);
 
 }
+
+void destroyWindow() {
+    SDL_DestroyRenderer(_renderer);
+    SDL_DestroyWindow(_window);
+    SDL_Quit();
+}
+#pragma endregion
 
 /// <summary>
 /// Main 
 /// </summary>
 /// <returns>void</returns>
 int main(){
-    luaEmbed();
-    /*luaCheckStack();
-    luaCallFunction();*/
+    //luaCheckStack();
+    //luaCallFunction();
     //push_C_Function();
     //lua_userdata();
     //lua_get_config_table();
-    bool sdlRunning = initWindow();
-    printf("SDL2 compiled and running: %d\n", sdlRunning);
+    luaEmbed();
+    L = luaL_newstate();
+    luaL_openlibs(L);
+    if (luaL_dofile(L,"playerController.lua") != LUA_OK) {
+        luaL_error(L, "Unable to load file. Error: %s\n", lua_tostring(L, -1));
+        return EXIT_FAILURE;
+    }
+    lua_pushcfunction(L, setPlayerPosition);
+    lua_setglobal(L, "setPlayerPos");
+
+    startup();
+    while (_sdlWindowRunning) {
+        process_input();
+        update();
+        render();
+    }
+    destroyWindow();
     return 0;
 }
 
