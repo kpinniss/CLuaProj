@@ -26,5 +26,11 @@
     <None Include="funcs2.lua">
       <Filter>Source Files</Filter>
     </None>
+    <None Include="rectangle.lua">
+      <Filter>Source Files</Filter>
+    </None>
+    <None Include="config.lua">
+      <Filter>Source Files</Filter>
+    </None>
   </ItemGroup>
 </Project>

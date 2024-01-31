@@ -2,6 +2,8 @@
 //
 
 #include <iostream>
+#include <SDL.h>
+#undef main
 /// <summary>
 /// load lua external libs
 /// </summary>
@@ -16,6 +18,61 @@ extern "C"
 #ifdef _WIN32
 #pragma comment(lib, "lua/lua54.lib")
 #endif
+
+#pragma region Fields
+
+SDL_Window* _window = NULL;
+SDL_Renderer* _renderer = NULL;
+
+SDL_Texture* _colorBufferTexture = NULL;
+uint32_t* _colorBuffer = NULL;
+
+int _windowWidth = 800;
+int _windowHeight = 600;
+
+
+#pragma endregion
+
+bool initWindow(void) {
+    if (SDL_Init(SDL_INIT_EVERYTHING) != 0) {
+        fprintf(stderr, "Error initializing SDL.\n");
+        return false;
+    }
+    //check size of screen for full screen
+    SDL_DisplayMode displayMode;
+    SDL_GetCurrentDisplayMode(0, &displayMode);
+
+    //update window WxH
+    _windowWidth = displayMode.w;
+    _windowHeight = displayMode.h;
+
+    //create window
+    _window = SDL_CreateWindow(
+        "3D Renderer",
+        SDL_WINDOWPOS_CENTERED,
+        SDL_WINDOWPOS_CENTERED,
+        _windowWidth,
+        _windowHeight,
+        SDL_WINDOW_BORDERLESS
+    );
+
+    if (!_window) {
+        fprintf(stderr, "Error creating SDL Window.\n");
+        return false;
+    }
+
+    //create renderer
+    _renderer = SDL_CreateRenderer(_window, -1, 0);
+
+    if (!_renderer) {
+        fprintf(stderr, "Error creating SDL Renderer.\n");
+        return false;
+    }
+
+    SDL_SetWindowFullscreen(_window, SDL_WINDOW_FULLSCREEN);
+
+    return true;
+}
 
 /// <summary>
 /// check if lua is compiled and scripts can be run
@@ -126,6 +183,68 @@ void push_C_Function(void){
     lua_close(L);
 }
 
+struct rectangle {
+    int x, y, width, height;
+};
+
+int create_rectangle(lua_State* L) {
+    rectangle* rect = (rectangle*)lua_newuserdata(L, sizeof(rectangle));
+    rect->x = 0;
+    rect->y = 0;
+    rect->height = 120;
+    rect->width = 80;
+    return 1; //return own type as new userd data (number of user data returned)
+}
+
+int change_rectangle_size(lua_State* L) {
+    //grab rect from bottom of stack since params h,w will be -1, -2
+    rectangle* rect = (rectangle*)lua_touserdata(L, -3);
+    rect->width = (int)lua_tonumber(L,-2);
+    rect->height = (int)lua_tonumber(L, -1);
+    return 0; //does not return values to the stack
+}
+
+void lua_userdata(void) {
+    lua_State* L = luaL_newstate();
+    //expose naitive create_rectangle function
+    lua_pushcfunction(L, create_rectangle);
+    lua_setglobal(L, "create_rect");
+    //expose naitive change_rectangle_size function
+    lua_pushcfunction(L, change_rectangle_size);
+    lua_setglobal(L, "change_rect_size");
+
+    luaL_dofile(L, "rectangle.lua");
+    lua_getglobal(L, "square");
+
+    if (lua_isuserdata(L,-1)) {
+        rectangle* r = (rectangle*)lua_touserdata(L,-1);
+        printf("User Data: [Rectangle] - Width: %d - Height: %d.\n", r->width, r->height);
+    }
+    else {
+        printf("No user data found.");
+    }
+    lua_close(L);
+}
+
+struct config_obj {
+    int W, H, num_enms, num_lvls;
+};
+
+void lua_get_config_table(void) {
+    lua_State* L = luaL_newstate();
+    if (luaL_dofile(L, "config.lua") == LUA_OK) {
+        lua_getglobal(L, "config_table");
+        if (lua_istable(L ,-1)) {
+            lua_getfield(L, -1, "window_width"); //set top of stack to window_width value
+            printf("Window Width: %s\n", lua_tostring(L, -1));
+        }
+    }
+    else {
+        luaL_error(L, "Error: %\n", lua_tostring(L,-1));
+    }
+    
+
+}
 
 /// <summary>
 /// Main 
@@ -135,7 +254,12 @@ int main(){
     luaEmbed();
     /*luaCheckStack();
     luaCallFunction();*/
-    push_C_Function();
+    //push_C_Function();
+    //lua_userdata();
+    //lua_get_config_table();
+    bool sdlRunning = initWindow();
+    printf("SDL2 compiled and running: %d\n", sdlRunning);
+    return 0;
 }
 
 // Run program: Ctrl + F5 or Debug > Start Without Debugging menu
